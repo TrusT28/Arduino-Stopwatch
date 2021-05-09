@@ -58,7 +58,8 @@ int get_pulse(Button& b) {
 struct Disp {
   unsigned char place[4]; /* place[0] is the rightmost digit, place[3] the leftmost one */
   long deadline;          /* place[] hold data in a translated form */
-  unsigned char phase;    /* index of place until which we display digits, 0-3 refer to place[], 4==disp off */
+  int limit; /* index of place until which we display digits, 0-3 refer to place[]*/
+  unsigned char phase;  /* index of next place to be displayed 0-3 refer to place[], 4==disp off */
 };
 
 void init(Disp& d);   /* to suppress Arduino IDE errors */
@@ -118,14 +119,11 @@ unsigned char redraw(Disp& d, long now)
 {
   if (duration(now, d.deadline) >= 0) {
     int i = d.phase;
-    if (i < 4) {
-      for (int j = 0; j <= i; j++) {
-        disp_7seg(j, d.place[j]);
-      }
-      for(int j=i+1; j<4; j++){
-        disp_7seg(j, 0b00000000);
-      }
-      d.deadline += t_disp_on;
+    if(i<4){
+      disp_7seg(i,d.place[i]);
+      d.deadline+=t_disp_on;
+      i++;
+      d.phase=i;
       return 0;
     } else {
       d.deadline += t_disp_off;
@@ -155,7 +153,11 @@ void set_number_to_display(Disp& d, unsigned long t)
     d.place[i] = value;
     // no more digits in seconds to set
     if (sec == 0) { // Stop showing digits
-      d.phase = i;
+      d.limit = i; // We do not show digits further than at index i
+      for(int j=i+1; j<4;j++){
+        d.place[j]=0b00000000; // Set display at this digits to show nothing
+      }
+      Serial.println(d.limit);
       break;
     }
   }
@@ -177,8 +179,8 @@ Button button_A, button_B, button_C;
 
 void setup()
 {
-//  Serial.begin(9600);
-//  while (!Serial);
+  Serial.begin(9600);
+  while (!Serial);
 
   button_init(button_A, button1_pin);
   button_init(button_B, button2_pin);
@@ -193,32 +195,34 @@ void loop()
 {
   now = micros();
   
-  redraw(display, now);
-  if(state==Stopped) {
-      if(get_pulse(button_A)) {
+  if(redraw(display, now)){
+    switch(state){
+    case Stopped:
+        if(get_pulse(button_A)) {
+          state=Running;
+          prev = micros();
+        }
+        else if(get_pulse(button_C)) {
+          prev=micros();
+          timer=0;
+          set_number_to_display(display,  timer);
+        }
+        break;
+    case Running:
+       if(get_pulse(button_A)){
+        state=Stopped;
+       }
+       if(get_pulse(button_B)) {
+        state=Lapped;
+      }
+      break;
+    case Lapped:
+      if(get_pulse(button_B)){
         state=Running;
-        prev = micros();
       }
-      else if(get_pulse(button_C)) {
-        prev=micros();
-        timer=0;
-        set_number_to_display(display,  timer);
-      }
+      break;
+   }
   }
-  else if(state==Running) {
-     if(get_pulse(button_A)){
-      state=Stopped;
-     }
-     if(get_pulse(button_B)) {
-      state=Lapped;
-    }
-  }
-  else if(state==Lapped) {
-    if(get_pulse(button_B)){
-      state=Running;
-    }
-  }
-
   long elapsed = duration(now, prev);
   if ((state!=Stopped) && elapsed >= milli) { //1 millisecond passed, update timer
     timer += elapsed;
