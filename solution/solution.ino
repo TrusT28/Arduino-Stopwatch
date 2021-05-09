@@ -63,7 +63,7 @@ struct Disp {
 
 void init(Disp& d);   /* to suppress Arduino IDE errors */
 unsigned char redraw(Disp& d, long now);
-void translate(Disp& d, unsigned long t);
+void set_number_to_display(Disp& d, unsigned long t);
 
 const long t_disp_on = 60;   /* [us] duration of a given LED being on */
 const long t_disp_off = 160; /* [us] duration of the display being off */
@@ -137,19 +137,23 @@ unsigned char redraw(Disp& d, long now)
   return 0;
 }
 
-void translate(Disp& d, unsigned long t)
+void set_number_to_display(Disp& d, unsigned long t)
 {
+  // First set only milliseconds at rightmost digit
   unsigned long ms = ((t / 1000) % 1000) / 100; //Milliseconds
-  //disp_7seg(0, font[ms]);
   d.place[0] = font[ms];
+
+  // Now set up seconds for the rest of the digits
   unsigned long sec = (t / 1000000); //Seconds
   for (int i = 1; i < 4; i++) {
     unsigned long digit = sec % 10;
     sec /= 10;
     unsigned char value = font[digit];
+    // Set up the dot to distiguish between seconds and milliseconds
     if (i == 1)
       value = value | 0b00000001;
     d.place[i] = value;
+    // no more digits in seconds to set
     if (sec == 0) { // Stop showing digits
       d.phase = i;
       break;
@@ -159,33 +163,30 @@ void translate(Disp& d, unsigned long t)
 
 // *** SETUP HELPERS *** \\
 
+enum states {Stopped, Running, Lapped};
 
-int state = 0;
-int switch_state = 0;
-bool updated = false;
+enum states state;
 long now;
 long prev;
 long timer;
 const long milli = 1000;
-bool on = false;
-bool lap = false;
-
 Disp display;
-Button button_plus, button_minus, button_switch;
+Button button_A, button_B, button_C;
 
 // *** Start Code *** \\
 
 void setup()
 {
 //  Serial.begin(9600);
- // while (!Serial);
+//  while (!Serial);
 
-  button_init(button_plus, button1_pin);
-  button_init(button_minus, button2_pin);
-  button_init(button_switch, button3_pin);
+  button_init(button_A, button1_pin);
+  button_init(button_B, button2_pin);
+  button_init(button_C, button3_pin);
   init(display);
-  translate(display, 0);
+  set_number_to_display(display, 0);
   prev = micros();
+  state = Stopped;
 }
 
 void loop()
@@ -193,48 +194,37 @@ void loop()
   now = micros();
   
   redraw(display, now);
+  if(state==Stopped) {
+      if(get_pulse(button_A)) {
+        state=Running;
+        prev = micros();
+      }
+      else if(get_pulse(button_C)) {
+        prev=micros();
+        timer=0;
+        set_number_to_display(display,  timer);
+      }
+  }
+  else if(state==Running) {
+     if(get_pulse(button_A)){
+      state=Stopped;
+     }
+     if(get_pulse(button_B)) {
+      state=Lapped;
+    }
+  }
+  else if(state==Lapped) {
+    if(get_pulse(button_B)){
+      state=Running;
+    }
+  }
+
   long elapsed = duration(now, prev);
-  if (on && elapsed >= milli) { //1 millisecond passed
+  if ((state!=Stopped) && elapsed >= milli) { //1 millisecond passed, update timer
     timer += elapsed;
-    unsigned long ms = ((timer / 1000) % 1000) / 100; //Milliseconds
-    unsigned long sec = (timer / 1000000);  //Seconds
- //   Serial.print(sec);
- //   Serial.print(":");
- //   Serial.println(ms);
- 
- //   if not button2
-    if(!lap){
-      translate(display,  timer);
+    if(state!=Lapped){
+      set_number_to_display(display,  timer);
     }
     prev = now;
-  }
-
-  if (updated) {
-    if (state > 0 && !lap) {
-      on = !on;
-      if (on)
-        prev = micros();
-    }
-   else if (state < 0 && on){
-      lap=!lap;
-   }
-    if (switch_state > 0 && !on){
-      prev=micros();
-      timer=0;
-      translate(display,  timer);
-    }
-      
-    state = 0;
-    switch_state = 0;
-    updated = false;
-  }
-
-  int newState = state;
-  newState += get_pulse(button_plus);
-  newState -= get_pulse(button_minus);
-  switch_state += get_pulse(button_switch);
-  if (newState != state || switch_state > 0) {
-    updated = true;
-    state = newState;
   }
 }
