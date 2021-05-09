@@ -58,7 +58,6 @@ int get_pulse(Button& b) {
 struct Disp {
   unsigned char place[4]; /* place[0] is the rightmost digit, place[3] the leftmost one */
   long deadline;          /* place[] hold data in a translated form */
-  int limit; /* index of place until which we display digits, 0-3 refer to place[]*/
   unsigned char phase;  /* index of next place to be displayed 0-3 refer to place[], 4==disp off */
 };
 
@@ -140,10 +139,16 @@ void set_number_to_display(Disp& d, unsigned long t)
   // First set only milliseconds at rightmost digit
   unsigned long ms = ((t / 1000) % 1000) / 100; //Milliseconds
   d.place[0] = font[ms];
-
+  
   // Now set up seconds for the rest of the digits
   unsigned long sec = (t / 1000000); //Seconds
+  
+  int limit=4; // We do not show digits further than at index 'limit'
   for (int i = 1; i < 4; i++) {
+    if(i>limit){
+      d.place[i]=0b00000000; // Set display at this digits to show nothing
+    }
+    else {
     unsigned long digit = sec % 10;
     sec /= 10;
     unsigned char value = font[digit];
@@ -151,14 +156,10 @@ void set_number_to_display(Disp& d, unsigned long t)
     if (i == 1)
       value = value | 0b00000001;
     d.place[i] = value;
-    // no more digits in seconds to set
-    if (sec == 0) { // Stop showing digits
-      d.limit = i; // We do not show digits further than at index i
-      for(int j=i+1; j<4;j++){
-        d.place[j]=0b00000000; // Set display at this digits to show nothing
-      }
-      Serial.println(d.limit);
-      break;
+    
+    if (sec == 0)
+       // No more digits in seconds to set. Stop showing digits
+       limit=i;
     }
   }
 }
@@ -179,8 +180,8 @@ Button button_A, button_B, button_C;
 
 void setup()
 {
-  Serial.begin(9600);
-  while (!Serial);
+//  Serial.begin(9600);
+//  while (!Serial);
 
   button_init(button_A, button1_pin);
   button_init(button_B, button2_pin);
